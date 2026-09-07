@@ -84,3 +84,21 @@ func (c *Client) SearchEvents(from, to string, postFilter map[string]interface{}
 
 	return c.do(http.MethodPost, path, body)
 }
+
+// Search combines BuildPostFilter and SearchEvents, then parses the raw
+// response into a SearchResponse — the real, confirmed Moesif shape.
+func (c *Client) Search(criteria FilterCriteria) (SearchResponse, error) {
+	postFilter := BuildPostFilter(criteria)
+
+	raw, err := c.SearchEvents(criteria.From, criteria.To, postFilter)
+	if err != nil {
+		return SearchResponse{}, err
+	}
+
+	var resp SearchResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return SearchResponse{}, fmt.Errorf("parse moesif response: %w", err)
+	}
+
+	return resp, nil
+}

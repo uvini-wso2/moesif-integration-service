@@ -4,18 +4,18 @@ package moesif
 // combining a specific customer/account with specific action types.
 type FilterCriteria struct {
 	CompanyID   string   // Moesif "company_id" — the customer/account to scope to
-	ActionTypes []string // e.g. []string{"application_created", "authentication_attempt"}
+	ActionTypes []string // e.g. []string{"organization_created", "user_created"}
 	From        string   // Moesif relative/absolute time, e.g. "-30d"
 	To          string   // e.g. "now"
 }
 
-// actionField is the Moesif event field carrying the event/action type
-// (e.g. "application_created", "api_call") for Asgardeo activity.
+// actionField is the Moesif event field carrying the specific action name
+// (e.g. "organization_created", "user_created") for Asgardeo activity.
 //
-// ASSUMPTION — based on the sample raw event shape discussed with the team,
-// not yet verified against a real Moesif response. Confirm once the real API
-// key is available and a sample response can be inspected.
-const actionField = "event_type"
+// CONFIRMED against a real Moesif response on 2026-09-07 — "event_type" is
+// always "user_action" and is NOT useful for distinguishing action types;
+// "action_name" is the field that actually varies.
+const actionField = "action_name"
 
 // BuildPostFilter turns a FilterCriteria into the Elasticsearch-style
 // post_filter DSL Moesif's Search API expects, requiring a match on BOTH

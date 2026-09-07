@@ -1,14 +1,31 @@
 package moesif
 
-// RawEvent mirrors the (assumed) shape of a single event as returned by
-// Moesif's Search API for Asgardeo product activity.
-//
-// ASSUMPTION — based on the sample shape discussed, not yet verified against
-// a real Moesif response. Confirm field names once the real API key arrives.
-type RawEvent struct {
-	UserID    string `json:"user_id"`
-	CompanyID string `json:"company_id"`
-	EventType string `json:"event_type"`
-	Status    int    `json:"status"`
-	Timestamp string `json:"timestamp"` // RFC3339, e.g. "2026-08-20T10:30:00Z"
+// SearchResponse mirrors Moesif's Search Events API response envelope.
+type SearchResponse struct {
+	Hits  []RawHit `json:"hits"`
+	Total int      `json:"total"`
+}
+
+// RawHit is a single search result — Moesif wraps the actual event fields
+// under "_source".
+type RawHit struct {
+	ID     string    `json:"_id"`
+	Source RawSource `json:"_source"`
+}
+
+// RawSource is the actual event data, confirmed against a real Moesif
+// response for Asgardeo activity (2026-09-07).
+type RawSource struct {
+	CompanyID  string     `json:"company_id"`
+	UserID     string     `json:"user_id"`
+	EventType  string     `json:"event_type"`  // observed: always "user_action" — not useful for filtering
+	ActionName string     `json:"action_name"` // the real distinguishing field, e.g. "organization_created"
+	Request    RawRequest `json:"request"`
+}
+
+// RawRequest holds request-level details, including the event's timestamp.
+type RawRequest struct {
+	Time string `json:"time"` // e.g. "2026-09-07T02:00:58.646" (no timezone suffix — treat as UTC)
+	Verb string `json:"verb"`
+	URI  string `json:"uri"`
 }

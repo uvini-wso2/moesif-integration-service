@@ -2,14 +2,23 @@ package moesif
 
 import "time"
 
-// Event type values assumed to appear in RawEvent.EventType.
-//
-// ASSUMPTION — these exact strings are guesses, not confirmed against real
-// Asgardeo/Moesif data. Confirm and adjust once available.
+// Action name values for Moesif's "action_name" field.
 const (
-	EventTypeApplicationCreated  = "application_created"
-	EventTypeAuthenticationEvent = "authentication_attempt"
-	EventTypeAPICall             = "api_call"
+	// CONFIRMED — observed in a real Moesif response for Asgardeo activity
+	// on 2026-09-07.
+	ActionNameOrganizationCreated     = "organization_created"
+	ActionNameOrganizationSubscribed  = "organization_subscribed"
+	ActionNameUserCreated             = "user_created"
+	ActionNameOnboardingStepCompleted = "Onboarding-Step-Completed"
+
+	// ASSUMPTION — NOT yet observed in real data. A 318-event sample pulled
+	// on 2026-09-07 contained no action resembling a login/auth attempt.
+	// Confirm the real action name with the Moesif admin, or a
+	// broader/different query, before relying on this.
+	ActionNameAuthenticationAttempt = "authentication_attempt"
+
+	// ASSUMPTION — same caveat as above.
+	ActionNameAPICall = "api_call"
 )
 
 // Summary is the normalized, per-customer signal set consumed downstream by
@@ -22,33 +31,37 @@ type Summary struct {
 	LastActivity             string `json:"lastActivity"` // date only, e.g. "2026-08-31"
 }
 
-// Normalize aggregates a slice of raw Moesif events (already filtered to a
+// Normalize aggregates a slice of raw Moesif hits (already filtered to a
 // single company) into a Summary.
 //
-// ASSUMPTION — these aggregation rules are first-pass guesses, meant to be
-// reviewed against real data:
-//   - AuthenticationSuccessful = true if ANY authentication_attempt event has
-//     status 200. Adjust if it should instead mean the LAST attempt, or ALL.
-//   - LastActivity = latest timestamp across all events, truncated to a date
-//     (matches the sample's date-only format).
-func Normalize(events []RawEvent) Summary {
+// ASSUMPTION — ApplicationCreated is currently derived from
+// ActionNameOnboardingStepCompleted as a stand-in, since no confirmed
+// "application created" action name has been observed yet. Revisit once
+// confirmed.
+//
+// AuthenticationAttempts / AuthenticationSuccessful currently cannot be
+// computed from any real data seen so far — no authentication-related
+// action name has been confirmed, and no "status" field exists on the real
+// event shape. These will stay at zero/false until that signal is found.
+func Normalize(hits []RawHit) Summary {
 	var summary Summary
 	var latest time.Time
 
-	for _, e := range events {
-		switch e.EventType {
-		case EventTypeApplicationCreated:
+	for _, hit := range hits {
+		src := hit.Source
+
+		switch src.ActionName {
+		case ActionNameOnboardingStepCompleted:
 			summary.ApplicationCreated = true
-		case EventTypeAuthenticationEvent:
+		case ActionNameAuthenticationAttempt:
 			summary.AuthenticationAttempts++
-			if e.Status == 200 {
-				summary.AuthenticationSuccessful = true
-			}
-		case EventTypeAPICall:
+			// TODO: no confirmed way to detect success/failure yet —
+			// revisit once a real authentication_attempt event is seen.
+		case ActionNameAPICall:
 			summary.ApiUsageDetected = true
 		}
 
-		if ts, err := time.Parse(time.RFC3339, e.Timestamp); err == nil {
+		if ts, err := parseMoesifTime(src.Request.Time); err == nil {
 			if ts.After(latest) {
 				latest = ts
 			}
@@ -60,4 +73,10 @@ func Normalize(events []RawEvent) Summary {
 	}
 
 	return summary
+}
+
+// parseMoesifTime parses the observed Moesif request.time format, e.g.
+// "2026-09-07T02:00:58.646" — no timezone suffix, treated as UTC.
+func parseMoesifTime(raw string) (time.Time, error) {
+	return time.Parse("2006-01-02T15:04:05.000", raw)
 }
