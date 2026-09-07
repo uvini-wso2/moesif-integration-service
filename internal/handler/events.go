@@ -36,18 +36,14 @@ func Events(client eventsClient) http.HandlerFunc {
 			to = "now"
 		}
 
+		// Deliberately no ActionTypes filter here — we fetch ALL of this
+		// company's events so Normalize() sees every activity type,
+		// including ones we haven't discovered/whitelisted yet. This keeps
+		// lastActivity accurate even when new action names appear.
 		criteria := moesif.FilterCriteria{
 			CompanyID: companyID,
-			ActionTypes: []string{
-				moesif.ActionNameOnboardingStepCompleted,
-				moesif.ActionNameOrganizationCreated,
-				moesif.ActionNameOrganizationSubscribed,
-				moesif.ActionNameUserCreated,
-				moesif.ActionNameAuthenticationAttempt,
-				moesif.ActionNameAPICall,
-			},
-			From: from,
-			To:   to,
+			From:      from,
+			To:        to,
 		}
 
 		result, err := client.Search(criteria)
