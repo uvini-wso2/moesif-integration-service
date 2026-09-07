@@ -1,7 +1,17 @@
 package moesif
 
 // SearchResponse mirrors Moesif's Search Events API response envelope.
+//
+// CONFIRMED (2026-09-07): the real response nests hits+total inside a
+// "hits" object (Elasticsearch-style), not at the top level.
 type SearchResponse struct {
+	Result   HitsResult `json:"hits"`
+	Took     int        `json:"took"`
+	TimedOut bool       `json:"timed_out"`
+}
+
+// HitsResult holds the actual array of hits and the total count.
+type HitsResult struct {
 	Hits  []RawHit `json:"hits"`
 	Total int      `json:"total"`
 }

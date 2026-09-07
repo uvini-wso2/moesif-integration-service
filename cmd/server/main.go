@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"github.com/uvini-wso2/moesif-integration-service/internal/handler"
 	"github.com/uvini-wso2/moesif-integration-service/internal/moesif"
 )
 
@@ -26,34 +27,14 @@ func main() {
 		BaseURL: baseURL,
 	})
 
-	// One-off test call at startup — proves the request shape works,
-	// even though it will fail auth with a placeholder key.
-	testMoesifCall(client)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("GET /events", handler.Events(client))
 
 	slog.Info("starting server", "port", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		slog.Error("server failed", "error", err)
 	}
-}
-
-func testMoesifCall(client *moesif.Client) {
-	postFilter := map[string]interface{}{
-		"bool": map[string]interface{}{
-			"should": map[string]interface{}{
-				"match_all": map[string]interface{}{},
-			},
-		},
-	}
-
-	result, err := client.SearchEvents("-1d", "now", postFilter)
-	if err != nil {
-		slog.Warn("moesif test call failed (expected with placeholder key)", "error", err)
-		return
-	}
-	slog.Info("moesif test call succeeded", "response", string(result))
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
