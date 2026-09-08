@@ -56,6 +56,13 @@ type Summary struct {
 	// OnboardingSkippedCount is how many times this company/user triggered
 	// an Onboarding-Skipped event.
 	OnboardingSkippedCount int `json:"onboardingSkippedCount"`
+	// LastSkippedStepNumber / LastSkippedStepName describe the step at
+	// which the MOST RECENT skip occurred (chronologically last skip, not
+	// first). nil/"" if no skip has occurred. StepNumber is a pointer
+	// because step 0 ("welcome_option_selected") is a real, valid step —
+	// nil means "never skipped", not "skipped at step 0".
+	LastSkippedStepNumber *int   `json:"lastSkippedStepNumber"`
+	LastSkippedStepName   string `json:"lastSkippedStepName,omitempty"`
 	// UnavailableSignals names fields above that are NOT real data today —
 	// see the confirmed-unavailable comment on ActionNameAuthenticationAttempt.
 	// A consumer should treat these fields' zero-values as "unknown", not
@@ -68,27 +75,38 @@ type Summary struct {
 func Normalize(hits []RawHit) Summary {
 	var summary Summary
 	var earliest, latest time.Time
+	var latestSkipTime time.Time
 
 	for _, hit := range hits {
 		src := hit.Source
+
+		eventTime, timeErr := parseMoesifTime(src.Request.Time)
 
 		switch src.ActionName {
 		case ActionNameOnboardingStepCompleted:
 			summary.ApplicationCreated = true
 		case ActionNameOnboardingSkipped:
 			summary.OnboardingSkippedCount++
+			// Track the step info from whichever skip is chronologically
+			// most recent, not just the last one encountered in the slice
+			// (hits are not guaranteed to arrive in time order).
+			if timeErr == nil && (latestSkipTime.IsZero() || eventTime.After(latestSkipTime)) {
+				latestSkipTime = eventTime
+				summary.LastSkippedStepNumber = src.Metadata.StepNumber
+				summary.LastSkippedStepName = src.Metadata.StepName
+			}
 		case ActionNameAuthenticationAttempt:
 			summary.AuthenticationAttempts++
 		case ActionNameAPICall:
 			summary.ApiUsageDetected = true
 		}
 
-		if ts, err := parseMoesifTime(src.Request.Time); err == nil {
-			if ts.After(latest) {
-				latest = ts
+		if timeErr == nil {
+			if eventTime.After(latest) {
+				latest = eventTime
 			}
-			if earliest.IsZero() || ts.Before(earliest) {
-				earliest = ts
+			if earliest.IsZero() || eventTime.Before(earliest) {
+				earliest = eventTime
 			}
 		}
 	}

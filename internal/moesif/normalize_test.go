@@ -2,6 +2,10 @@ package moesif
 
 import "testing"
 
+func intPtr(i int) *int {
+	return &i
+}
+
 func TestNormalize(t *testing.T) {
 	hits := []RawHit{
 		{
@@ -19,17 +23,21 @@ func TestNormalize(t *testing.T) {
 			},
 		},
 		{
+			// An earlier skip — should NOT win, since a later skip exists below.
 			Source: RawSource{
 				CompanyID:  "company_456",
 				ActionName: ActionNameOnboardingSkipped,
 				Request:    RawRequest{Time: "2026-08-22T11:00:00.000"},
+				Metadata:   RawMetadata{StepNumber: intPtr(0), StepName: "welcome_option_selected"},
 			},
 		},
 		{
+			// The most recent skip — this one should win.
 			Source: RawSource{
 				CompanyID:  "company_456",
 				ActionName: ActionNameOnboardingSkipped,
 				Request:    RawRequest{Time: "2026-08-25T12:00:00.000"},
+				Metadata:   RawMetadata{StepNumber: intPtr(3), StepName: "redirect_url_configured"},
 			},
 		},
 		{
@@ -55,9 +63,16 @@ func TestNormalize(t *testing.T) {
 	if summary.OnboardingSkippedCount != 2 {
 		t.Errorf("expected OnboardingSkippedCount = 2, got %d", summary.OnboardingSkippedCount)
 	}
+	if summary.LastSkippedStepNumber == nil {
+		t.Fatal("expected LastSkippedStepNumber to be set, got nil")
+	}
+	if *summary.LastSkippedStepNumber != 3 {
+		t.Errorf("expected LastSkippedStepNumber = 3 (the MOST RECENT skip), got %d", *summary.LastSkippedStepNumber)
+	}
+	if summary.LastSkippedStepName != "redirect_url_configured" {
+		t.Errorf("expected LastSkippedStepName = redirect_url_configured, got %q", summary.LastSkippedStepName)
+	}
 
-	// Confirm the unavailable-signals flag is always present, since
-	// authentication/API-usage tracking is a confirmed platform-wide gap.
 	wantUnavailable := []string{"authenticationAttempts", "authenticationSuccessful", "apiUsageDetected"}
 	if len(summary.UnavailableSignals) != len(wantUnavailable) {
 		t.Fatalf("expected %d unavailable signals, got %d: %v", len(wantUnavailable), len(summary.UnavailableSignals), summary.UnavailableSignals)
@@ -69,8 +84,6 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
-// TestNormalize_SingleEvent confirms FirstSeen and LastActivity are equal
-// when only one event exists — a simple edge case worth its own check.
 func TestNormalize_SingleEvent(t *testing.T) {
 	hits := []RawHit{
 		{
@@ -78,6 +91,7 @@ func TestNormalize_SingleEvent(t *testing.T) {
 				CompanyID:  "company_456",
 				ActionName: ActionNameOnboardingSkipped,
 				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"},
+				Metadata:   RawMetadata{StepNumber: intPtr(1), StepName: "app_name_entered"},
 			},
 		},
 	}
@@ -92,5 +106,56 @@ func TestNormalize_SingleEvent(t *testing.T) {
 	}
 	if summary.OnboardingSkippedCount != 1 {
 		t.Errorf("expected OnboardingSkippedCount = 1, got %d", summary.OnboardingSkippedCount)
+	}
+}
+
+// TestNormalize_NoSkip confirms LastSkippedStepNumber stays nil (not 0)
+// when no skip ever occurred — since 0 is itself a valid real step, this
+// distinction matters.
+func TestNormalize_NoSkip(t *testing.T) {
+	hits := []RawHit{
+		{
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameOnboardingStepCompleted,
+				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"},
+			},
+		},
+	}
+
+	summary := Normalize(hits)
+
+	if summary.OnboardingSkippedCount != 0 {
+		t.Errorf("expected OnboardingSkippedCount = 0, got %d", summary.OnboardingSkippedCount)
+	}
+	if summary.LastSkippedStepNumber != nil {
+		t.Errorf("expected LastSkippedStepNumber = nil (never skipped), got %v", *summary.LastSkippedStepNumber)
+	}
+}
+
+// TestNormalize_SkipAtStepZero confirms step 0 is correctly distinguished
+// from "no skip" — a genuine skip at step 0 must show *0, not nil.
+func TestNormalize_SkipAtStepZero(t *testing.T) {
+	hits := []RawHit{
+		{
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameOnboardingSkipped,
+				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"},
+				Metadata:   RawMetadata{StepNumber: intPtr(0), StepName: "welcome_option_selected"},
+			},
+		},
+	}
+
+	summary := Normalize(hits)
+
+	if summary.LastSkippedStepNumber == nil {
+		t.Fatal("expected LastSkippedStepNumber to be set (step 0 is a real skip), got nil")
+	}
+	if *summary.LastSkippedStepNumber != 0 {
+		t.Errorf("expected LastSkippedStepNumber = 0, got %d", *summary.LastSkippedStepNumber)
+	}
+	if summary.LastSkippedStepName != "welcome_option_selected" {
+		t.Errorf("expected LastSkippedStepName = welcome_option_selected, got %q", summary.LastSkippedStepName)
 	}
 }

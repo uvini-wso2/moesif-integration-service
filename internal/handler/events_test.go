@@ -187,6 +187,7 @@ func TestEvents_ResponseFieldNames(t *testing.T) {
 		"lastActivity",
 		"firstSeen",
 		"onboardingSkippedCount",
+		"lastSkippedStepNumber",
 		"unavailableSignals",
 		"eventsFound",
 	}
