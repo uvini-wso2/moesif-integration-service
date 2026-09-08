@@ -1,10 +1,11 @@
 package moesif
 
-// FilterCriteria describes what subset of Moesif events to retrieve —
-// combining a specific customer/account with specific action types.
+// FilterCriteria describes what subset of Moesif events to retrieve.
+// At least one of CompanyID or UserID must be set.
 type FilterCriteria struct {
-	CompanyID   string   // Moesif "company_id" — the customer/account to scope to
-	ActionTypes []string // e.g. []string{"organization_created", "user_created"}
+	CompanyID   string   // Moesif "company_id" — optional if UserID is set
+	UserID      string   // Moesif "user_id" — optional if CompanyID is set
+	ActionTypes []string // optional — if empty, no action-type filter is applied
 	From        string   // Moesif relative/absolute time, e.g. "-30d"
 	To          string   // e.g. "now"
 }
@@ -12,14 +13,14 @@ type FilterCriteria struct {
 // actionField is the Moesif event field carrying the specific action name
 // (e.g. "organization_created", "user_created") for Asgardeo activity.
 //
-// CONFIRMED against a real Moesif response on 2026-09-07 — "event_type" is
-// always "user_action" and is NOT useful for distinguishing action types;
-// "action_name" is the field that actually varies.
+// CONFIRMED against real Moesif responses on 2026-09-07/08 — "event_type"
+// is always "user_action" and is NOT useful for distinguishing action
+// types; "action_name" is the field that actually varies.
 const actionField = "action_name"
 
 // BuildPostFilter turns a FilterCriteria into the Elasticsearch-style
-// post_filter DSL Moesif's Search API expects, requiring a match on BOTH
-// company_id AND at least one of the given action types.
+// post_filter DSL Moesif's Search API expects. CompanyID and UserID are
+// combined with AND when both are set; either alone is also valid.
 func BuildPostFilter(criteria FilterCriteria) map[string]interface{} {
 	must := []map[string]interface{}{}
 
@@ -27,6 +28,14 @@ func BuildPostFilter(criteria FilterCriteria) map[string]interface{} {
 		must = append(must, map[string]interface{}{
 			"term": map[string]interface{}{
 				"company_id": criteria.CompanyID,
+			},
+		})
+	}
+
+	if criteria.UserID != "" {
+		must = append(must, map[string]interface{}{
+			"term": map[string]interface{}{
+				"user_id": criteria.UserID,
 			},
 		})
 	}
