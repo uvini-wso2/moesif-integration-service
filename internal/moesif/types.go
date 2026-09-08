@@ -17,10 +17,14 @@ type HitsResult struct {
 }
 
 // RawHit is a single search result — Moesif wraps the actual event fields
-// under "_source".
+// under "_source". Sort holds the sort key(s) for this hit, which Moesif
+// requires to be echoed back as search_after when requesting the next
+// page — see client.go's Search method and Moesif's documented
+// keyset/seek pagination mechanism.
 type RawHit struct {
-	ID     string    `json:"_id"`
-	Source RawSource `json:"_source"`
+	ID     string        `json:"_id"`
+	Source RawSource     `json:"_source"`
+	Sort   []interface{} `json:"sort"`
 }
 
 // RawSource is the actual event data, confirmed against a real Moesif
