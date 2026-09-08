@@ -4,22 +4,34 @@ import "time"
 
 // Action name values for Moesif's "action_name" field.
 const (
-	// CONFIRMED — observed in a real Moesif response for Asgardeo activity
-	// on 2026-09-07.
+	// CONFIRMED — observed in real Moesif responses for Asgardeo activity,
+	// across Prod/Dev/Staging/Test environments (2026-09-08).
 	ActionNameOrganizationCreated     = "organization_created"
 	ActionNameOrganizationSubscribed  = "organization_subscribed"
 	ActionNameUserCreated             = "user_created"
 	ActionNameOnboardingStepCompleted = "Onboarding-Step-Completed"
 
-	// ASSUMPTION — NOT yet observed in real data. A 318-event sample pulled
-	// on 2026-09-07 contained no action resembling a login/auth attempt.
-	// Confirm the real action name with the Moesif admin, or a
-	// broader/different query, before relying on this.
+	// CONFIRMED UNAVAILABLE (2026-09-08): authentication/login events are
+	// NOT tracked for Asgardeo's own product analytics in any Moesif
+	// environment (Prod/Dev/Staging/Test all checked). Per the team's
+	// Moesif admin, login/token tracking only exists as a custom,
+	// per-customer opt-in feature for specific end-customer orgs — it is
+	// not enabled for Asgardeo itself today. These constants are kept so
+	// the classification logic below is ready if this ever changes, but
+	// they will not match any real data currently.
 	ActionNameAuthenticationAttempt = "authentication_attempt"
-
-	// ASSUMPTION — same caveat as above.
-	ActionNameAPICall = "api_call"
+	ActionNameAPICall               = "api_call"
 )
+
+// unavailableSignals lists Summary fields that are confirmed NOT
+// obtainable from Moesif today (see ActionNameAuthenticationAttempt /
+// ActionNameAPICall above). This is a platform-wide limitation, not a
+// per-company one, so every Summary reports the same list.
+var unavailableSignals = []string{
+	"authenticationAttempts",
+	"authenticationSuccessful",
+	"apiUsageDetected",
+}
 
 // Summary is the normalized, per-customer signal set consumed downstream by
 // the PLG backend / Claude interpretation step.
@@ -28,21 +40,16 @@ type Summary struct {
 	AuthenticationAttempts   int    `json:"authenticationAttempts"`
 	AuthenticationSuccessful bool   `json:"authenticationSuccessful"`
 	ApiUsageDetected         bool   `json:"apiUsageDetected"`
-	LastActivity             string `json:"lastActivity"` // date only, e.g. "2026-08-31"
+	LastActivity             string `json:"lastActivity"`
+	// UnavailableSignals names fields above that are NOT real data today —
+	// see the confirmed-unavailable comment on ActionNameAuthenticationAttempt.
+	// A consumer should treat these fields' zero-values as "unknown", not
+	// "confirmed zero activity".
+	UnavailableSignals []string `json:"unavailableSignals"`
 }
 
 // Normalize aggregates a slice of raw Moesif hits (already filtered to a
 // single company) into a Summary.
-//
-// ASSUMPTION — ApplicationCreated is currently derived from
-// ActionNameOnboardingStepCompleted as a stand-in, since no confirmed
-// "application created" action name has been observed yet. Revisit once
-// confirmed.
-//
-// AuthenticationAttempts / AuthenticationSuccessful currently cannot be
-// computed from any real data seen so far — no authentication-related
-// action name has been confirmed, and no "status" field exists on the real
-// event shape. These will stay at zero/false until that signal is found.
 func Normalize(hits []RawHit) Summary {
 	var summary Summary
 	var latest time.Time
@@ -55,8 +62,6 @@ func Normalize(hits []RawHit) Summary {
 			summary.ApplicationCreated = true
 		case ActionNameAuthenticationAttempt:
 			summary.AuthenticationAttempts++
-			// TODO: no confirmed way to detect success/failure yet —
-			// revisit once a real authentication_attempt event is seen.
 		case ActionNameAPICall:
 			summary.ApiUsageDetected = true
 		}
@@ -71,6 +76,8 @@ func Normalize(hits []RawHit) Summary {
 	if !latest.IsZero() {
 		summary.LastActivity = latest.Format("2006-01-02")
 	}
+
+	summary.UnavailableSignals = unavailableSignals
 
 	return summary
 }

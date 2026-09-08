@@ -19,8 +19,6 @@ func TestNormalize(t *testing.T) {
 			},
 		},
 		{
-			// Testing our current (unconfirmed) api_call mapping logic —
-			// not yet verified this string matches a real Moesif event.
 			Source: RawSource{
 				CompanyID:  "company_456",
 				ActionName: ActionNameAPICall,
@@ -34,12 +32,19 @@ func TestNormalize(t *testing.T) {
 	if !summary.ApplicationCreated {
 		t.Error("expected ApplicationCreated to be true (via Onboarding-Step-Completed)")
 	}
-	if !summary.ApiUsageDetected {
-		t.Error("expected ApiUsageDetected to be true")
-	}
 	if summary.LastActivity != "2026-08-31" {
 		t.Errorf("expected LastActivity = 2026-08-31, got %q", summary.LastActivity)
 	}
-	// AuthenticationAttempts / AuthenticationSuccessful are intentionally
-	// not asserted here — no confirmed real-data mapping exists yet.
+
+	// Confirm the unavailable-signals flag is always present, since
+	// authentication/API-usage tracking is a confirmed platform-wide gap.
+	wantUnavailable := []string{"authenticationAttempts", "authenticationSuccessful", "apiUsageDetected"}
+	if len(summary.UnavailableSignals) != len(wantUnavailable) {
+		t.Fatalf("expected %d unavailable signals, got %d: %v", len(wantUnavailable), len(summary.UnavailableSignals), summary.UnavailableSignals)
+	}
+	for i, want := range wantUnavailable {
+		if summary.UnavailableSignals[i] != want {
+			t.Errorf("UnavailableSignals[%d] = %q, want %q", i, summary.UnavailableSignals[i], want)
+		}
+	}
 }
