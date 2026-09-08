@@ -185,6 +185,8 @@ func TestEvents_ResponseFieldNames(t *testing.T) {
 		"authenticationSuccessful",
 		"apiUsageDetected",
 		"lastActivity",
+		"firstSeen",
+		"onboardingSkippedCount",
 		"unavailableSignals",
 		"eventsFound",
 	}

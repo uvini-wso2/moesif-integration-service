@@ -7,16 +7,17 @@ const (
 	// CONFIRMED — observed in real Moesif responses for Asgardeo activity,
 	// across Prod/Dev/Staging/Test environments (2026-09-08).
 	//
-	// Only ActionNameOnboardingStepCompleted is currently wired into
-	// Normalize()'s classification below. OrganizationCreated,
-	// OrganizationSubscribed, and UserCreated are kept here as confirmed
-	// real values (useful reference/building blocks) even though nothing
-	// currently classifies on them — not dead code, just not yet needed
-	// for any Summary field.
+	// Only ActionNameOnboardingStepCompleted and ActionNameOnboardingSkipped
+	// are currently wired into Normalize()'s classification below.
+	// OrganizationCreated, OrganizationSubscribed, and UserCreated are kept
+	// here as confirmed real values (useful reference/building blocks) even
+	// though nothing currently classifies on them — not dead code, just not
+	// yet needed for any Summary field.
 	ActionNameOrganizationCreated     = "organization_created"
 	ActionNameOrganizationSubscribed  = "organization_subscribed"
 	ActionNameUserCreated             = "user_created"
 	ActionNameOnboardingStepCompleted = "Onboarding-Step-Completed"
+	ActionNameOnboardingSkipped       = "Onboarding-Skipped"
 
 	// CONFIRMED UNAVAILABLE (2026-09-08): authentication/login events are
 	// NOT tracked for Asgardeo's own product analytics in any Moesif
@@ -48,6 +49,13 @@ type Summary struct {
 	AuthenticationSuccessful bool   `json:"authenticationSuccessful"`
 	ApiUsageDetected         bool   `json:"apiUsageDetected"`
 	LastActivity             string `json:"lastActivity"`
+	// FirstSeen is the date of the EARLIEST event found, across all event
+	// types. Combined with LastActivity, this gives overall tenure — how
+	// long this account has existed and whether it's still active.
+	FirstSeen string `json:"firstSeen"`
+	// OnboardingSkippedCount is how many times this company/user triggered
+	// an Onboarding-Skipped event.
+	OnboardingSkippedCount int `json:"onboardingSkippedCount"`
 	// UnavailableSignals names fields above that are NOT real data today —
 	// see the confirmed-unavailable comment on ActionNameAuthenticationAttempt.
 	// A consumer should treat these fields' zero-values as "unknown", not
@@ -59,7 +67,7 @@ type Summary struct {
 // single company) into a Summary.
 func Normalize(hits []RawHit) Summary {
 	var summary Summary
-	var latest time.Time
+	var earliest, latest time.Time
 
 	for _, hit := range hits {
 		src := hit.Source
@@ -67,6 +75,8 @@ func Normalize(hits []RawHit) Summary {
 		switch src.ActionName {
 		case ActionNameOnboardingStepCompleted:
 			summary.ApplicationCreated = true
+		case ActionNameOnboardingSkipped:
+			summary.OnboardingSkippedCount++
 		case ActionNameAuthenticationAttempt:
 			summary.AuthenticationAttempts++
 		case ActionNameAPICall:
@@ -77,11 +87,17 @@ func Normalize(hits []RawHit) Summary {
 			if ts.After(latest) {
 				latest = ts
 			}
+			if earliest.IsZero() || ts.Before(earliest) {
+				earliest = ts
+			}
 		}
 	}
 
 	if !latest.IsZero() {
 		summary.LastActivity = latest.Format("2006-01-02")
+	}
+	if !earliest.IsZero() {
+		summary.FirstSeen = earliest.Format("2006-01-02")
 	}
 
 	summary.UnavailableSignals = unavailableSignals
