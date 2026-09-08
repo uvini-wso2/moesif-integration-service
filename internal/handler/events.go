@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -15,6 +16,28 @@ type eventsClient interface {
 	Search(criteria moesif.FilterCriteria) (moesif.SearchResponse, error)
 }
 
+// maxParamLength caps the length of any single query parameter accepted
+// by this handler. Moesif itself doesn't enforce a strict format for
+// company_id/user_id (confirmed against real data — most are UUIDs, but
+// at least one legitimate anonymous/session-style ID does not match UUID
+// shape), so this is a loose sanity bound against obviously-wrong input
+// (e.g. an accidental paste of a large blob of text), not a format check.
+const maxParamLength = 200
+
+// validateParam trims whitespace and checks the result is non-empty (if
+// required) and within maxParamLength. Returns an error message suitable
+// for direct display to the caller, or "" if the value is valid.
+func validateParam(name, value string, required bool) (trimmed string, errMsg string) {
+	trimmed = strings.TrimSpace(value)
+	if required && trimmed == "" {
+		return trimmed, fmt.Sprintf("%s must not be empty", name)
+	}
+	if len(trimmed) > maxParamLength {
+		return trimmed, fmt.Sprintf("%s must be %d characters or fewer", name, maxParamLength)
+	}
+	return trimmed, ""
+}
+
 // Events handles GET /events?company_id=...&user_id=...&from=...&to=...
 //
 // At least one of company_id or user_id is required; both may be provided
@@ -25,19 +48,37 @@ type eventsClient interface {
 // any recognized signal".
 func Events(client eventsClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		companyID := strings.TrimSpace(r.URL.Query().Get("company_id"))
-		userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
+		companyID, errMsg := validateParam("company_id", r.URL.Query().Get("company_id"), false)
+		if errMsg != "" {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
+			return
+		}
+
+		userID, errMsg := validateParam("user_id", r.URL.Query().Get("user_id"), false)
+		if errMsg != "" {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
+			return
+		}
 
 		if companyID == "" && userID == "" {
 			http.Error(w, `{"error":"at least one of company_id or user_id query parameters is required"}`, http.StatusBadRequest)
 			return
 		}
 
-		from := r.URL.Query().Get("from")
+		from, errMsg := validateParam("from", r.URL.Query().Get("from"), false)
+		if errMsg != "" {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
+			return
+		}
 		if from == "" {
 			from = "-30d" // default: last 30 days
 		}
-		to := r.URL.Query().Get("to")
+
+		to, errMsg := validateParam("to", r.URL.Query().Get("to"), false)
+		if errMsg != "" {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
+			return
+		}
 		if to == "" {
 			to = "now"
 		}

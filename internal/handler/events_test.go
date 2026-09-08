@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/uvini-wso2/moesif-integration-service/internal/moesif"
@@ -191,5 +192,44 @@ func TestEvents_ResponseFieldNames(t *testing.T) {
 		if _, ok := body[field]; !ok {
 			t.Errorf("expected response to contain field %q, but it was missing", field)
 		}
+	}
+}
+
+// Case 8: an excessively long parameter (e.g. an accidental paste of a
+// large blob of text) must be rejected with 400, not silently truncated
+// or sent to Moesif as-is.
+func TestEvents_ParamTooLong(t *testing.T) {
+	mock := &mockMoesifClient{}
+	tooLong := strings.Repeat("a", maxParamLength+1)
+	req := httptest.NewRequest(http.MethodGet, "/events?company_id="+tooLong, nil)
+	rec := httptest.NewRecorder()
+
+	Events(mock)(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rec.Code)
+	}
+}
+
+// Case 9: real Moesif user_id values are not always UUID-shaped (confirmed
+// against real data — some are anonymous/session-style IDs). The handler
+// must accept any reasonably-sized value, not just strict UUIDs.
+func TestEvents_NonUUIDUserIDAccepted(t *testing.T) {
+	mock := &mockMoesifClient{
+		Response: moesif.SearchResponse{
+			Result: moesif.HitsResult{Hits: sampleHits(), Total: 1},
+		},
+	}
+	nonUUIDUserID := "1a07f690def2bd-01adf07d5c33fb-1d525630-1d73c0"
+	req := httptest.NewRequest(http.MethodGet, "/events?user_id="+nonUUIDUserID, nil)
+	rec := httptest.NewRecorder()
+
+	Events(mock)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200 for non-UUID user_id, got %d", rec.Code)
+	}
+	if mock.LastCriteria.UserID != nonUUIDUserID {
+		t.Errorf("expected UserID passed through unchanged, got %q", mock.LastCriteria.UserID)
 	}
 }
