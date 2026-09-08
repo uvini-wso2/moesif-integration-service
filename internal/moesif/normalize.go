@@ -6,6 +6,13 @@ import "time"
 const (
 	// CONFIRMED — observed in real Moesif responses for Asgardeo activity,
 	// across Prod/Dev/Staging/Test environments (2026-09-08).
+	//
+	// Only ActionNameOnboardingStepCompleted is currently wired into
+	// Normalize()'s classification below. OrganizationCreated,
+	// OrganizationSubscribed, and UserCreated are kept here as confirmed
+	// real values (useful reference/building blocks) even though nothing
+	// currently classifies on them — not dead code, just not yet needed
+	// for any Summary field.
 	ActionNameOrganizationCreated     = "organization_created"
 	ActionNameOrganizationSubscribed  = "organization_subscribed"
 	ActionNameUserCreated             = "user_created"

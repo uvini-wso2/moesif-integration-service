@@ -24,14 +24,13 @@ type eventsClient interface {
 // (e.g. an accidental paste of a large blob of text), not a format check.
 const maxParamLength = 200
 
-// validateParam trims whitespace and checks the result is non-empty (if
-// required) and within maxParamLength. Returns an error message suitable
-// for direct display to the caller, or "" if the value is valid.
-func validateParam(name, value string, required bool) (trimmed string, errMsg string) {
+// validateParam trims whitespace and checks the result is within
+// maxParamLength. Presence/required-ness is enforced separately (see the
+// "at least one of company_id or user_id" check below) since no single
+// param here is unconditionally required. Returns an error message
+// suitable for direct display to the caller, or "" if the value is valid.
+func validateParam(name, value string) (trimmed string, errMsg string) {
 	trimmed = strings.TrimSpace(value)
-	if required && trimmed == "" {
-		return trimmed, fmt.Sprintf("%s must not be empty", name)
-	}
 	if len(trimmed) > maxParamLength {
 		return trimmed, fmt.Sprintf("%s must be %d characters or fewer", name, maxParamLength)
 	}
@@ -48,13 +47,13 @@ func validateParam(name, value string, required bool) (trimmed string, errMsg st
 // any recognized signal".
 func Events(client eventsClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		companyID, errMsg := validateParam("company_id", r.URL.Query().Get("company_id"), false)
+		companyID, errMsg := validateParam("company_id", r.URL.Query().Get("company_id"))
 		if errMsg != "" {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
 			return
 		}
 
-		userID, errMsg := validateParam("user_id", r.URL.Query().Get("user_id"), false)
+		userID, errMsg := validateParam("user_id", r.URL.Query().Get("user_id"))
 		if errMsg != "" {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
 			return
@@ -65,7 +64,7 @@ func Events(client eventsClient) http.HandlerFunc {
 			return
 		}
 
-		from, errMsg := validateParam("from", r.URL.Query().Get("from"), false)
+		from, errMsg := validateParam("from", r.URL.Query().Get("from"))
 		if errMsg != "" {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
 			return
@@ -74,7 +73,7 @@ func Events(client eventsClient) http.HandlerFunc {
 			from = "-30d" // default: last 30 days
 		}
 
-		to, errMsg := validateParam("to", r.URL.Query().Get("to"), false)
+		to, errMsg := validateParam("to", r.URL.Query().Get("to"))
 		if errMsg != "" {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, errMsg), http.StatusBadRequest)
 			return

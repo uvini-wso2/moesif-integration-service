@@ -3,11 +3,17 @@ package moesif
 // FilterCriteria describes what subset of Moesif events to retrieve.
 // At least one of CompanyID or UserID must be set.
 type FilterCriteria struct {
-	CompanyID   string   // Moesif "company_id" — optional if UserID is set
-	UserID      string   // Moesif "user_id" — optional if CompanyID is set
-	ActionTypes []string // optional — if empty, no action-type filter is applied
-	From        string   // Moesif relative/absolute time, e.g. "-30d"
-	To          string   // e.g. "now"
+	CompanyID string // Moesif "company_id" — optional if UserID is set
+	UserID    string // Moesif "user_id" — optional if CompanyID is set
+	// ActionTypes optionally restricts results to specific action names.
+	// NOT currently set by the /events handler — Normalize() classifies
+	// every event type after an unfiltered fetch instead, so lastActivity
+	// stays accurate even for action names we haven't recognized yet (see
+	// events.go). Kept here as a reusable building block for any future
+	// caller that does want a server-side action-type filter.
+	ActionTypes []string
+	From        string // Moesif relative/absolute time, e.g. "-30d"
+	To          string // e.g. "now"
 }
 
 // actionField is the Moesif event field carrying the specific action name
