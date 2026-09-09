@@ -11,8 +11,6 @@ import (
 	"github.com/uvini-wso2/moesif-integration-service/internal/moesif"
 )
 
-// sampleHits is a small set of realistic hits, matching the confirmed real
-// Moesif response shape, used across several test cases below.
 func sampleHits() []moesif.RawHit {
 	return []moesif.RawHit{
 		{
@@ -26,9 +24,6 @@ func sampleHits() []moesif.RawHit {
 	}
 }
 
-// Case 1: missing both identifiers must be rejected with 400, before any
-// call to Moesif is attempted — protects against silently querying with
-// an empty/unbounded filter.
 func TestEvents_MissingIdentifiers(t *testing.T) {
 	mock := &mockMoesifClient{}
 	req := httptest.NewRequest(http.MethodGet, "/events", nil)
@@ -41,8 +36,6 @@ func TestEvents_MissingIdentifiers(t *testing.T) {
 	}
 }
 
-// Case 2: a valid company_id alone should succeed, and the handler must
-// pass CompanyID through to the Moesif client correctly.
 func TestEvents_CompanyIDOnly(t *testing.T) {
 	mock := &mockMoesifClient{
 		Response: moesif.SearchResponse{
@@ -65,7 +58,6 @@ func TestEvents_CompanyIDOnly(t *testing.T) {
 	}
 }
 
-// Case 3: a valid user_id alone should succeed, mirroring case 2.
 func TestEvents_UserIDOnly(t *testing.T) {
 	mock := &mockMoesifClient{
 		Response: moesif.SearchResponse{
@@ -88,9 +80,6 @@ func TestEvents_UserIDOnly(t *testing.T) {
 	}
 }
 
-// Case 4: both identifiers together should both be passed through to
-// Moesif, combined (BuildPostFilter ANDs them — tested separately in the
-// moesif package, but here we just confirm the handler forwards both).
 func TestEvents_BothIdentifiers(t *testing.T) {
 	mock := &mockMoesifClient{
 		Response: moesif.SearchResponse{
@@ -111,8 +100,6 @@ func TestEvents_BothIdentifiers(t *testing.T) {
 	}
 }
 
-// Case 5: if the Moesif client itself fails (network error, auth error,
-// etc.), the handler must return 502, not crash or leak the raw error.
 func TestEvents_MoesifError(t *testing.T) {
 	mock := &mockMoesifClient{
 		Err: errors.New("simulated moesif failure"),
@@ -130,8 +117,6 @@ func TestEvents_MoesifError(t *testing.T) {
 	}
 }
 
-// Case 6: zero events found must produce eventsFound: 0 and an all-empty
-// Summary — this is the "no data exists for this ID" signal, not an error.
 func TestEvents_ZeroEventsFound(t *testing.T) {
 	mock := &mockMoesifClient{
 		Response: moesif.SearchResponse{
@@ -155,14 +140,16 @@ func TestEvents_ZeroEventsFound(t *testing.T) {
 	if got := body["eventsFound"]; got != float64(0) {
 		t.Errorf("expected eventsFound = 0, got %v", got)
 	}
-	if got := body["applicationCreated"]; got != false {
-		t.Errorf("expected applicationCreated = false, got %v", got)
+
+	productActivity, ok := body["productActivity"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected productActivity to be an object")
+	}
+	if got := productActivity["applicationCreated"]; got != false {
+		t.Errorf("expected productActivity.applicationCreated = false, got %v", got)
 	}
 }
 
-// Case 7: contract check — confirms the exact JSON field names the
-// frontend/PLG backend will depend on. If someone accidentally renames a
-// field later, this test catches it immediately.
 func TestEvents_ResponseFieldNames(t *testing.T) {
 	mock := &mockMoesifClient{
 		Response: moesif.SearchResponse{
@@ -179,28 +166,25 @@ func TestEvents_ResponseFieldNames(t *testing.T) {
 		t.Fatalf("failed to parse response JSON: %v", err)
 	}
 
-	requiredFields := []string{
-		"applicationCreated",
-		"authenticationAttempts",
-		"authenticationSuccessful",
-		"apiUsageDetected",
-		"lastActivity",
-		"firstSeen",
-		"onboardingSkippedCount",
-		"lastSkippedStepNumber",
-		"unavailableSignals",
-		"eventsFound",
-	}
-	for _, field := range requiredFields {
+	requiredTopLevel := []string{"firstSeen", "lastActivity", "productActivity", "eventsFound"}
+	for _, field := range requiredTopLevel {
 		if _, ok := body[field]; !ok {
 			t.Errorf("expected response to contain field %q, but it was missing", field)
 		}
 	}
+
+	productActivity, ok := body["productActivity"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected productActivity to be an object")
+	}
+	requiredProductActivityFields := []string{"applicationCreated", "hasSkippedOnboarding", "skippedStepNumber"}
+	for _, field := range requiredProductActivityFields {
+		if _, ok := productActivity[field]; !ok {
+			t.Errorf("expected productActivity to contain field %q, but it was missing", field)
+		}
+	}
 }
 
-// Case 8: an excessively long parameter (e.g. an accidental paste of a
-// large blob of text) must be rejected with 400, not silently truncated
-// or sent to Moesif as-is.
 func TestEvents_ParamTooLong(t *testing.T) {
 	mock := &mockMoesifClient{}
 	tooLong := strings.Repeat("a", maxParamLength+1)
@@ -214,9 +198,6 @@ func TestEvents_ParamTooLong(t *testing.T) {
 	}
 }
 
-// Case 9: real Moesif user_id values are not always UUID-shaped (confirmed
-// against real data — some are anonymous/session-style IDs). The handler
-// must accept any reasonably-sized value, not just strict UUIDs.
 func TestEvents_NonUUIDUserIDAccepted(t *testing.T) {
 	mock := &mockMoesifClient{
 		Response: moesif.SearchResponse{

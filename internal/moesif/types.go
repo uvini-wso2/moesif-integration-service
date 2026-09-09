@@ -36,6 +36,7 @@ type RawSource struct {
 	ActionName string      `json:"action_name"` // the real distinguishing field, e.g. "organization_created"
 	Request    RawRequest  `json:"request"`
 	Metadata   RawMetadata `json:"metadata"`
+	Company    RawCompany  `json:"company"`
 }
 
 // RawRequest holds request-level details, including the event's timestamp.
@@ -58,4 +59,17 @@ type RawRequest struct {
 type RawMetadata struct {
 	StepNumber *int   `json:"step_number"`
 	StepName   string `json:"step_name"`
+}
+
+// RawCompany holds company-level info attached to some events. CONFIRMED
+// (2026-09-08): real events carry company.metadata.account_name, e.g.
+// "roadsidecoderytt". Not every event includes this (company is often
+// absent/null on events not tied to a specific action), so Normalize()
+// takes it from whichever event in the set happens to have it.
+type RawCompany struct {
+	Metadata RawCompanyMetadata `json:"metadata"`
+}
+
+type RawCompanyMetadata struct {
+	AccountName string `json:"account_name"`
 }

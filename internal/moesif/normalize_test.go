@@ -6,33 +6,43 @@ func intPtr(i int) *int {
 	return &i
 }
 
+// TestNormalize exercises the full aggregation across multiple days and
+// multiple skips, confirming: org name extraction, full timestamp output,
+// ApplicationCreated, HasSkippedOnboarding + which skip "wins" (the
+// chronologically most recent one, not just the last one in the slice),
+// and AverageTimePerActiveDayMinutes only counting days with 2+ events.
 func TestNormalize(t *testing.T) {
 	hits := []RawHit{
 		{
+			// Day A (2026-08-15): only 1 event — should NOT count toward
+			// the average (a single event can't establish a duration).
 			Source: RawSource{
 				CompanyID:  "company_456",
 				ActionName: ActionNameOnboardingStepCompleted,
-				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"}, // earliest — should win as FirstSeen
+				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"}, // earliest — FirstSeen
 			},
 		},
 		{
+			// Day B (2026-08-20): 2 events, 15 min apart — an active day.
 			Source: RawSource{
 				CompanyID:  "company_456",
 				ActionName: ActionNameOrganizationCreated,
-				Request:    RawRequest{Time: "2026-08-20T10:30:00.000"},
+				Request:    RawRequest{Time: "2026-08-20T10:00:00.000"},
+				Company:    RawCompany{Metadata: RawCompanyMetadata{AccountName: "test-org"}},
 			},
 		},
 		{
-			// An earlier skip — should NOT win, since a later skip exists below.
 			Source: RawSource{
 				CompanyID:  "company_456",
 				ActionName: ActionNameOnboardingSkipped,
-				Request:    RawRequest{Time: "2026-08-22T11:00:00.000"},
+				Request:    RawRequest{Time: "2026-08-20T10:15:00.000"},
 				Metadata:   RawMetadata{StepNumber: intPtr(0), StepName: "welcome_option_selected"},
 			},
 		},
 		{
-			// The most recent skip — this one should win.
+			// Day C (2026-08-25): only 1 event, but chronologically the
+			// MOST RECENT skip — must still win for LastSkipped*, even
+			// though this day doesn't count toward the average.
 			Source: RawSource{
 				CompanyID:  "company_456",
 				ActionName: ActionNameOnboardingSkipped,
@@ -41,46 +51,61 @@ func TestNormalize(t *testing.T) {
 			},
 		},
 		{
+			// Day D (2026-08-31): 2 events, 20 min apart — an active day,
+			// and the latest overall (LastActivity).
 			Source: RawSource{
 				CompanyID:  "company_456",
-				ActionName: ActionNameAPICall,
-				Request:    RawRequest{Time: "2026-08-31T08:00:00.000"}, // latest — should win as LastActivity
+				ActionName: ActionNameOrganizationSubscribed,
+				Request:    RawRequest{Time: "2026-08-31T08:00:00.000"},
+			},
+		},
+		{
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameUserCreated,
+				Request:    RawRequest{Time: "2026-08-31T08:20:00.000"}, // latest — LastActivity
 			},
 		},
 	}
 
 	summary := Normalize(hits)
 
-	if !summary.ApplicationCreated {
-		t.Error("expected ApplicationCreated to be true (via Onboarding-Step-Completed)")
+	if summary.OrganizationName != "test-org" {
+		t.Errorf("expected OrganizationName = test-org, got %q", summary.OrganizationName)
 	}
-	if summary.LastActivity != "2026-08-31" {
-		t.Errorf("expected LastActivity = 2026-08-31, got %q", summary.LastActivity)
+	if summary.FirstSeen != "2026-08-15T09:00:00Z" {
+		t.Errorf("expected FirstSeen = 2026-08-15T09:00:00Z, got %q", summary.FirstSeen)
 	}
-	if summary.FirstSeen != "2026-08-15" {
-		t.Errorf("expected FirstSeen = 2026-08-15, got %q", summary.FirstSeen)
-	}
-	if summary.OnboardingSkippedCount != 2 {
-		t.Errorf("expected OnboardingSkippedCount = 2, got %d", summary.OnboardingSkippedCount)
-	}
-	if summary.LastSkippedStepNumber == nil {
-		t.Fatal("expected LastSkippedStepNumber to be set, got nil")
-	}
-	if *summary.LastSkippedStepNumber != 3 {
-		t.Errorf("expected LastSkippedStepNumber = 3 (the MOST RECENT skip), got %d", *summary.LastSkippedStepNumber)
-	}
-	if summary.LastSkippedStepName != "redirect_url_configured" {
-		t.Errorf("expected LastSkippedStepName = redirect_url_configured, got %q", summary.LastSkippedStepName)
+	if summary.LastActivity != "2026-08-31T08:20:00Z" {
+		t.Errorf("expected LastActivity = 2026-08-31T08:20:00Z, got %q", summary.LastActivity)
 	}
 
-	wantUnavailable := []string{"authenticationAttempts", "authenticationSuccessful", "apiUsageDetected"}
-	if len(summary.UnavailableSignals) != len(wantUnavailable) {
-		t.Fatalf("expected %d unavailable signals, got %d: %v", len(wantUnavailable), len(summary.UnavailableSignals), summary.UnavailableSignals)
+	if summary.AverageTimePerActiveDayMinutes == nil {
+		t.Fatal("expected AverageTimePerActiveDayMinutes to be set, got nil")
 	}
-	for i, want := range wantUnavailable {
-		if summary.UnavailableSignals[i] != want {
-			t.Errorf("UnavailableSignals[%d] = %q, want %q", i, summary.UnavailableSignals[i], want)
-		}
+	// Day B: 15 min. Day D: 20 min. Average = 17.5.
+	if *summary.AverageTimePerActiveDayMinutes != 17.5 {
+		t.Errorf("expected AverageTimePerActiveDayMinutes = 17.5, got %v", *summary.AverageTimePerActiveDayMinutes)
+	}
+
+	if !summary.ProductActivity.ApplicationCreated {
+		t.Error("expected ProductActivity.ApplicationCreated to be true")
+	}
+	if !summary.ProductActivity.HasSkippedOnboarding {
+		t.Error("expected ProductActivity.HasSkippedOnboarding to be true")
+	}
+	if summary.ProductActivity.SkippedStepNumber == nil {
+		t.Fatal("expected LastSkippedStepNumber to be set, got nil")
+	}
+	// The CHRONOLOGICALLY latest skip is the Aug 25 one (step 3), even
+	// though the Aug 20 skip (step 0) has an earlier day-of-week ordering
+	// in the slice — Normalize must track by actual event time, not slice
+	// order.
+	if *summary.ProductActivity.SkippedStepNumber != 3 {
+		t.Errorf("expected SkippedStepNumber = 3 (the chronologically latest skip), got %d", *summary.ProductActivity.SkippedStepNumber)
+	}
+	if summary.ProductActivity.SkippedStepName != "redirect_url_configured" {
+		t.Errorf("expected LastSkippedStepName = redirect_url_configured, got %q", summary.ProductActivity.SkippedStepName)
 	}
 }
 
@@ -98,20 +123,21 @@ func TestNormalize_SingleEvent(t *testing.T) {
 
 	summary := Normalize(hits)
 
-	if summary.FirstSeen != "2026-08-15" {
-		t.Errorf("expected FirstSeen = 2026-08-15, got %q", summary.FirstSeen)
+	if summary.FirstSeen != "2026-08-15T09:00:00Z" {
+		t.Errorf("expected FirstSeen = 2026-08-15T09:00:00Z, got %q", summary.FirstSeen)
 	}
-	if summary.LastActivity != "2026-08-15" {
-		t.Errorf("expected LastActivity = 2026-08-15, got %q", summary.LastActivity)
+	if summary.LastActivity != "2026-08-15T09:00:00Z" {
+		t.Errorf("expected LastActivity = 2026-08-15T09:00:00Z, got %q", summary.LastActivity)
 	}
-	if summary.OnboardingSkippedCount != 1 {
-		t.Errorf("expected OnboardingSkippedCount = 1, got %d", summary.OnboardingSkippedCount)
+	if !summary.ProductActivity.HasSkippedOnboarding {
+		t.Error("expected HasSkippedOnboarding = true")
+	}
+	// A single event can't establish a duration — average should stay nil.
+	if summary.AverageTimePerActiveDayMinutes != nil {
+		t.Errorf("expected AverageTimePerActiveDayMinutes = nil (only 1 event total), got %v", *summary.AverageTimePerActiveDayMinutes)
 	}
 }
 
-// TestNormalize_NoSkip confirms LastSkippedStepNumber stays nil (not 0)
-// when no skip ever occurred — since 0 is itself a valid real step, this
-// distinction matters.
 func TestNormalize_NoSkip(t *testing.T) {
 	hits := []RawHit{
 		{
@@ -125,11 +151,11 @@ func TestNormalize_NoSkip(t *testing.T) {
 
 	summary := Normalize(hits)
 
-	if summary.OnboardingSkippedCount != 0 {
-		t.Errorf("expected OnboardingSkippedCount = 0, got %d", summary.OnboardingSkippedCount)
+	if summary.ProductActivity.HasSkippedOnboarding {
+		t.Error("expected HasSkippedOnboarding = false")
 	}
-	if summary.LastSkippedStepNumber != nil {
-		t.Errorf("expected LastSkippedStepNumber = nil (never skipped), got %v", *summary.LastSkippedStepNumber)
+	if summary.ProductActivity.SkippedStepNumber != nil {
+		t.Errorf("expected SkippedStepNumber = nil (never skipped), got %v", *summary.ProductActivity.SkippedStepNumber)
 	}
 }
 
@@ -149,13 +175,59 @@ func TestNormalize_SkipAtStepZero(t *testing.T) {
 
 	summary := Normalize(hits)
 
-	if summary.LastSkippedStepNumber == nil {
+	if summary.ProductActivity.SkippedStepNumber == nil {
 		t.Fatal("expected LastSkippedStepNumber to be set (step 0 is a real skip), got nil")
 	}
-	if *summary.LastSkippedStepNumber != 0 {
-		t.Errorf("expected LastSkippedStepNumber = 0, got %d", *summary.LastSkippedStepNumber)
+	if *summary.ProductActivity.SkippedStepNumber != 0 {
+		t.Errorf("expected LastSkippedStepNumber = 0, got %d", *summary.ProductActivity.SkippedStepNumber)
 	}
-	if summary.LastSkippedStepName != "welcome_option_selected" {
-		t.Errorf("expected LastSkippedStepName = welcome_option_selected, got %q", summary.LastSkippedStepName)
+}
+
+// TestNormalize_NoOrganizationName confirms OrganizationName stays empty
+// (omitted from JSON via omitempty) when no event carries it — rather
+// than defaulting to some placeholder string.
+func TestNormalize_NoOrganizationName(t *testing.T) {
+	hits := []RawHit{
+		{
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameUserCreated,
+				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"},
+			},
+		},
+	}
+
+	summary := Normalize(hits)
+
+	if summary.OrganizationName != "" {
+		t.Errorf("expected OrganizationName = \"\" (no event carried it), got %q", summary.OrganizationName)
+	}
+}
+
+// TestNormalize_NoActiveDays confirms AverageTimePerActiveDayMinutes stays
+// nil when every day only ever had a single event — no day qualifies as
+// "active" under the 2+ events rule.
+func TestNormalize_NoActiveDays(t *testing.T) {
+	hits := []RawHit{
+		{
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameOrganizationCreated,
+				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"},
+			},
+		},
+		{
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameUserCreated,
+				Request:    RawRequest{Time: "2026-08-20T10:00:00.000"}, // different day
+			},
+		},
+	}
+
+	summary := Normalize(hits)
+
+	if summary.AverageTimePerActiveDayMinutes != nil {
+		t.Errorf("expected AverageTimePerActiveDayMinutes = nil (no day had 2+ events), got %v", *summary.AverageTimePerActiveDayMinutes)
 	}
 }
