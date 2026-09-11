@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uvini-wso2/moesif-integration-service/internal/moesif"
+	"github.com/uvini-wso2/plg-activity-service/internal/moesif"
 )
 
 func sampleHits() []moesif.RawHit {

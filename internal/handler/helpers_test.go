@@ -1,6 +1,6 @@
 package handler
 
-import "github.com/uvini-wso2/moesif-integration-service/internal/moesif"
+import "github.com/uvini-wso2/plg-activity-service/internal/moesif"
 
 // mockMoesifClient is a test double for eventsClient. Configure Response
 // and Err before use in a test; LastCriteria captures the FilterCriteria

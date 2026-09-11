@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/uvini-wso2/moesif-integration-service/internal/handler"
-	"github.com/uvini-wso2/moesif-integration-service/internal/moesif"
+	"github.com/uvini-wso2/plg-activity-service/internal/handler"
+	"github.com/uvini-wso2/plg-activity-service/internal/moesif"
 )
 
 func main() {

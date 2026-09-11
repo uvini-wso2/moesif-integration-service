@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/uvini-wso2/moesif-integration-service/internal/moesif"
+	"github.com/uvini-wso2/plg-activity-service/internal/moesif"
 )
 
 // eventsClient is the minimal interface this handler needs from the Moesif
