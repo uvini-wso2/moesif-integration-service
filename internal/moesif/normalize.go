@@ -26,10 +26,8 @@ const (
 	//
 	// NOTE: this is Asgardeo-specific, not a Moesif-wide limitation — the
 	// other 4 SaaS products this API will eventually cover DO have this
-	// kind of data. These constants are kept here as reference for when
-	// another product's classification logic is built (likely its own
-	// ProductActivity-equivalent type), even though Asgardeo's
-	// ProductActivity below deliberately has no field for them.
+	// kind of data. Kept as reference for another product's classification
+	// logic, even though Asgardeo's ProductActivity has no field for them.
 	ActionNameAuthenticationAttempt = "authentication_attempt"
 	ActionNameAPICall               = "api_call"
 )
@@ -54,12 +52,17 @@ type ProductActivity struct {
 	// SkippedStepNumber / SkippedStepName describe the step at which
 	// onboarding was skipped. nil/"" if no skip has occurred. If multiple
 	// skip events somehow exist, the chronologically most recent one is
-	// used as the representative value (HasSkippedOnboarding intentionally
-	// doesn't track a count — see team decision 2026-09-09). StepNumber is
-	// a pointer because step 0 ("welcome_option_selected") is a real,
-	// valid step — nil means "never skipped", not "skipped at step 0".
+	// used as the representative value. StepNumber is a pointer because
+	// step 0 ("welcome_option_selected") is a real, valid step — nil means
+	// "never skipped", not "skipped at step 0".
 	SkippedStepNumber *int   `json:"skippedStepNumber"`
 	SkippedStepName   string `json:"skippedStepName,omitempty"`
+	// OnboardingSetupType comes from Moesif's metadata.wizard_path field
+	// (CONFIRMED 2026-09-09), e.g. "full_setup" or "preview" — distinguishes
+	// which onboarding wizard path the account took. Uses the first
+	// non-empty value found across the event set. Omitted if never present
+	// (e.g. an account with no onboarding-wizard events at all).
+	OnboardingSetupType string `json:"onboardingSetupType,omitempty"`
 }
 
 // Summary is the normalized, per-customer signal set consumed downstream by
@@ -76,6 +79,12 @@ type Summary struct {
 	// recognized ones. Together they show overall tenure.
 	FirstSeen    string `json:"firstSeen"`
 	LastActivity string `json:"lastActivity"`
+	// Timezone / CountryName come from the geo_ip data on the MOST RECENT
+	// event (the same one that sets LastActivity) — a best-effort snapshot
+	// of where this account was last active, not necessarily where it
+	// originally signed up. Omitted if that event had no geo_ip data.
+	Timezone    string `json:"timezone,omitempty"`
+	CountryName string `json:"countryName,omitempty"`
 	// AverageTimePerActiveDayMinutes averages (last-event-time minus
 	// first-event-time) across every calendar day that had 2+ events. Days
 	// with only 1 event are excluded — a single event can't establish a
@@ -91,7 +100,6 @@ func Normalize(hits []RawHit) Summary {
 	var summary Summary
 	var earliest, latest time.Time
 	var latestSkipTime time.Time
-	var skippedCount int
 
 	// Per-calendar-day first/last event time and count, for
 	// AverageTimePerActiveDayMinutes.
@@ -105,6 +113,9 @@ func Normalize(hits []RawHit) Summary {
 		if summary.OrganizationName == "" && src.Company.Metadata.AccountName != "" {
 			summary.OrganizationName = src.Company.Metadata.AccountName
 		}
+		if summary.ProductActivity.OnboardingSetupType == "" && src.Metadata.WizardPath != "" {
+			summary.ProductActivity.OnboardingSetupType = src.Metadata.WizardPath
+		}
 
 		eventTime, timeErr := parseMoesifTime(src.Request.Time)
 
@@ -112,17 +123,19 @@ func Normalize(hits []RawHit) Summary {
 		case ActionNameOnboardingStepCompleted:
 			summary.ProductActivity.ApplicationCreated = true
 		case ActionNameOnboardingSkipped:
-			skippedCount++
 			if timeErr == nil && (latestSkipTime.IsZero() || eventTime.After(latestSkipTime)) {
 				latestSkipTime = eventTime
 				summary.ProductActivity.SkippedStepNumber = src.Metadata.StepNumber
 				summary.ProductActivity.SkippedStepName = src.Metadata.StepName
 			}
+			summary.ProductActivity.HasSkippedOnboarding = true
 		}
 
 		if timeErr == nil {
 			if eventTime.After(latest) {
 				latest = eventTime
+				summary.Timezone = src.Request.GeoIP.Timezone
+				summary.CountryName = src.Request.GeoIP.CountryName
 			}
 			if earliest.IsZero() || eventTime.Before(earliest) {
 				earliest = eventTime
@@ -138,8 +151,6 @@ func Normalize(hits []RawHit) Summary {
 			}
 		}
 	}
-
-	summary.ProductActivity.HasSkippedOnboarding = skippedCount > 0
 
 	if !latest.IsZero() {
 		summary.LastActivity = latest.Format(timeOutputLayout)

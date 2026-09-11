@@ -28,7 +28,7 @@ type RawHit struct {
 }
 
 // RawSource is the actual event data, confirmed against a real Moesif
-// response for Asgardeo activity (2026-09-07/08).
+// response for Asgardeo activity (2026-09-07/08/09).
 type RawSource struct {
 	CompanyID  string      `json:"company_id"`
 	UserID     string      `json:"user_id"`
@@ -39,11 +39,22 @@ type RawSource struct {
 	Company    RawCompany  `json:"company"`
 }
 
-// RawRequest holds request-level details, including the event's timestamp.
+// RawRequest holds request-level details, including the event's timestamp
+// and geo/location info.
 type RawRequest struct {
-	Time string `json:"time"` // e.g. "2026-09-07T02:00:58.646" (no timezone suffix — treat as UTC)
-	Verb string `json:"verb"`
-	URI  string `json:"uri"`
+	Time  string   `json:"time"` // e.g. "2026-09-07T02:00:58.646" (no timezone suffix — treat as UTC)
+	Verb  string   `json:"verb"`
+	URI   string   `json:"uri"`
+	GeoIP RawGeoIP `json:"geo_ip"`
+}
+
+// RawGeoIP holds geographic info attached to a request. CONFIRMED
+// (2026-09-09): real events carry request.geo_ip.timezone (e.g.
+// "America/New_York") and request.geo_ip.country_name (e.g.
+// "United States"). Not present on every event type.
+type RawGeoIP struct {
+	Timezone    string `json:"timezone"`
+	CountryName string `json:"country_name"`
 }
 
 // RawMetadata holds event-specific metadata. Not all events populate all
@@ -51,7 +62,9 @@ type RawRequest struct {
 // which unmarshals fine into a zero-value RawMetadata. CONFIRMED
 // (2026-09-08): both Onboarding-Step-Completed and Onboarding-Skipped
 // events carry StepNumber/StepName, e.g. step_number: 1,
-// step_name: "app_name_entered".
+// step_name: "app_name_entered". CONFIRMED (2026-09-09): onboarding events
+// also carry wizard_path, observed real values include "full_setup" and
+// "preview".
 //
 // StepNumber is a pointer because 0 is a real, valid step
 // ("welcome_option_selected") — nil distinguishes "no step data present"
@@ -59,6 +72,7 @@ type RawRequest struct {
 type RawMetadata struct {
 	StepNumber *int   `json:"step_number"`
 	StepName   string `json:"step_name"`
+	WizardPath string `json:"wizard_path"`
 }
 
 // RawCompany holds company-level info attached to some events. CONFIRMED

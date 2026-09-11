@@ -231,3 +231,72 @@ func TestNormalize_NoActiveDays(t *testing.T) {
 		t.Errorf("expected AverageTimePerActiveDayMinutes = nil (no day had 2+ events), got %v", *summary.AverageTimePerActiveDayMinutes)
 	}
 }
+
+// TestNormalize_GeoAndWizardPath confirms Timezone/CountryName are taken
+// from the MOST RECENT event (not just any event), and OnboardingSetupType
+// is taken from the first non-empty wizard_path found across the set.
+func TestNormalize_GeoAndWizardPath(t *testing.T) {
+	hits := []RawHit{
+		{
+			// Earlier event, different location — should NOT win for geo.
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameOnboardingStepCompleted,
+				Request: RawRequest{
+					Time:  "2026-08-15T09:00:00.000",
+					GeoIP: RawGeoIP{Timezone: "Asia/Colombo", CountryName: "Sri Lanka"},
+				},
+				Metadata: RawMetadata{WizardPath: "full_setup"},
+			},
+		},
+		{
+			// Latest event — its geo info should win.
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameOnboardingStepCompleted,
+				Request: RawRequest{
+					Time:  "2026-08-20T10:00:00.000",
+					GeoIP: RawGeoIP{Timezone: "America/New_York", CountryName: "United States"},
+				},
+			},
+		},
+	}
+
+	summary := Normalize(hits)
+
+	if summary.Timezone != "America/New_York" {
+		t.Errorf("expected Timezone = America/New_York (from the MOST RECENT event), got %q", summary.Timezone)
+	}
+	if summary.CountryName != "United States" {
+		t.Errorf("expected CountryName = United States (from the MOST RECENT event), got %q", summary.CountryName)
+	}
+	if summary.ProductActivity.OnboardingSetupType != "full_setup" {
+		t.Errorf("expected OnboardingSetupType = full_setup (first non-empty value found), got %q", summary.ProductActivity.OnboardingSetupType)
+	}
+}
+
+// TestNormalize_NoGeoData confirms Timezone/CountryName/OnboardingSetupType
+// stay empty (and therefore omitted from JSON) when no event carries them.
+func TestNormalize_NoGeoData(t *testing.T) {
+	hits := []RawHit{
+		{
+			Source: RawSource{
+				CompanyID:  "company_456",
+				ActionName: ActionNameUserCreated,
+				Request:    RawRequest{Time: "2026-08-15T09:00:00.000"},
+			},
+		},
+	}
+
+	summary := Normalize(hits)
+
+	if summary.Timezone != "" {
+		t.Errorf("expected Timezone = \"\" (no geo data present), got %q", summary.Timezone)
+	}
+	if summary.CountryName != "" {
+		t.Errorf("expected CountryName = \"\" (no geo data present), got %q", summary.CountryName)
+	}
+	if summary.ProductActivity.OnboardingSetupType != "" {
+		t.Errorf("expected OnboardingSetupType = \"\" (no wizard_path present), got %q", summary.ProductActivity.OnboardingSetupType)
+	}
+}
